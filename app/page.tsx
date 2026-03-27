@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { StockQuote, AnalysisResult, Holding, IntradayData } from './types/stock'
-import { fetchQuotes, fetchIntraday } from './lib/stockApi'
+import { fetchQuotes, fetchIntraday, fetchSectorBoard } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
 
@@ -342,8 +342,7 @@ function PortfolioPanel({ holdings, onUpdate }: {
 export default function StockMonitorPage() {
   const HOLDING_CODES = ['002575']
   const ANCHOR_CODES = ['600666']
-  const BOARD_CODES = ['sh000001', 'sz399001', 'sz399006']
-
+  
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({})
   const [analyses, setAnalyses] = useState<Record<string, AnalysisResult>>({})
   const [boards, setBoards] = useState<Record<string, { name: string; change: number }>>({})
@@ -361,24 +360,22 @@ export default function StockMonitorPage() {
     setError(null)
     try {
       const allCodes = [...HOLDING_CODES, ...ANCHOR_CODES]
-      const [quotesArr, boardQuotes] = await Promise.all([
+      const [quotesArr, boardMap] = await Promise.all([
         fetchQuotes(allCodes),
-        fetchQuotes(BOARD_CODES),
+        fetchSectorBoard(),
       ])
 
       const qMap: Record<string, StockQuote> = {}
       for (const q of quotesArr) qMap[q.code] = q
       setQuotes(qMap)
 
-      const bMap: Record<string, { name: string; change: number }> = {}
-      for (const q of boardQuotes) bMap[q.code] = { name: q.name, change: q.zs }
-      setBoards(bMap)
+      setBoards(boardMap)
 
       // 计算分析
       const aMap: Record<string, AnalysisResult> = {}
       const q575 = qMap['002575']
       const q666 = qMap['600666']
-      const boardChange = bMap['sh000001']?.change || 0
+      const boardChange = boardMap["sh000001"]?.change || 0
 
       if (q575) {
         const h = holdings.find(h => h.code === '002575')

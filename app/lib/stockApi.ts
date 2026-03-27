@@ -90,7 +90,8 @@ export async function fetchQuotes(codes: string[]): Promise<StockQuote[]> {
 }
 
 export async function fetchSectorBoard(): Promise<Record<string, { name: string; change: number }>> {
-  const boardCodes = ['sh000001', 'sz399001', 'sz399006']
+  // 大盘 + 板块（电子元件板块）
+  const boardCodes = ['sh000001', 'sz399001', 'sz399006', 'sh883441']
   const quotes = await fetchQuotes(boardCodes)
   const map: Record<string, { name: string; change: number }> = {}
   for (const q of quotes) {
