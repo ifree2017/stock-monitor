@@ -1,4 +1,4 @@
-import type { StockQuote, IntradayData, MinuteBar } from '@/app/types/stock'
+import type { StockQuote, IntradayData, MinuteBar, BoardMember } from '@/app/types/stock'
 
 const TENCENT_API = 'https://qt.gtimg.cn/q='
 
@@ -140,3 +140,44 @@ export async function fetchIntraday(code: string): Promise<IntradayData | null> 
     return null
   }
 }
+
+// ── 板块成分股排行 ────────────────────────────────────────────────
+const SECTOR_API = 'https://proxy.finance.qq.com/ifzqgtstock/appstock/app/rank/getSectorMembers'
+
+export async function fetchSectorLeaders(boardCode: string, num = 8): Promise<BoardMember[]> {
+  if (!boardCode) return []
+  try {
+    const url = `${SECTOR_API}?plat=pc&industryCode=${boardCode}&type=&start=0&num=${num}&_var=sector_data`
+    const res = await fetch(url, {
+      headers: { 'Referer': 'https://finance.qq.com' },
+      cache: 'no-store',
+    })
+    if (!res.ok) return []
+    const text = await res.text()
+    const jsonStr = text.replace(/^[^=]+=/, '')
+    const data = JSON.parse(jsonStr)
+    const members: [string, string, number, number][] = data?.data?.[boardCode]?.sector_stocks || []
+    return members.map(([code, name, price, zs]: [string, string, number, number]) => ({
+      code,
+      name,
+      price: parseFloat(String(price)) || 0,
+      zs: parseFloat(String(zs)) || 0,
+    }))
+  } catch {
+    return []
+  }
+}
+
+// ── 预定义板块列表 ────────────────────────────────────────────────
+export const BOARD_LIST = [
+  { code: 'sh000001', name: '上证指数' },
+  { code: 'sz399001', name: '深证成指' },
+  { code: 'sz399006', name: '创业板指' },
+  { code: 'sh883441', name: '电子元件' },
+  { code: 'sh886038', name: '半导体' },
+  { code: 'sh884110', name: '宁德时代产业链' },
+  { code: 'sh884160', name: '新能源车' },
+  { code: 'sh801050', name: '光学光电子' },
+  { code: 'sh801760', name: '人工智能' },
+  { code: 'sh801750', name: '软件开发' },
+]

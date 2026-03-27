@@ -78,7 +78,6 @@ export function analyzeStock(
     signal,
     advice,
     resonance,
-    holding,
     pnl,
   }
 }
