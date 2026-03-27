@@ -149,11 +149,10 @@ export async function fetchIntraday(code: string): Promise<IntradayData | null> 
   }
 }
 
-// ── 板块成分股排行（东方财富接口）──────────────────────────────
-export async function fetchSectorLeaders(boardCode: string, num = 8): Promise<BoardMember[]> {
+// ── 板块成分股排行（东方财富，支持行业+概念）─────────────────────
+export async function fetchSectorLeaders(boardCode: string, t = '2', num = 8): Promise<BoardMember[]> {
   if (!boardCode) return []
-  // 东方财富板块成分股接口
-  const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${num}&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:${boardCode.replace('sh', '').replace('sz', '')}&fields=f12,f14,f3,f4`
+  const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${num}&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:${boardCode}&fields=f12,f14,f3,f4`
   try {
     const res = await fetch(url, {
       headers: { 'Referer': 'https://quote.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
@@ -174,15 +173,20 @@ export async function fetchSectorLeaders(boardCode: string, num = 8): Promise<Bo
 }
 
 // ── 预定义板块列表 ────────────────────────────────────────────────
+// t:2 = 行业板块, t:3 = 概念板块
 export const BOARD_LIST = [
-  { code: 'sh000001', name: '上证指数' },
-  { code: 'sz399001', name: '深证成指' },
-  { code: 'sz399006', name: '创业板指' },
-  { code: 'sh883441', name: '电子元件' },
-  { code: 'sh886038', name: '半导体' },
-  { code: 'sh884110', name: '宁德时代产业链' },
-  { code: 'sh884160', name: '新能源车' },
-  { code: 'sh801050', name: '光学光电子' },
-  { code: 'sh801760', name: '人工智能' },
-  { code: 'sh801750', name: '软件开发' },
+  { code: 'sh000001', name: '上证指数', isIndex: true },
+  { code: 'sz399001', name: '深证成指', isIndex: true },
+  { code: 'sz399006', name: '创业板指', isIndex: true },
+  { code: 'BK1028', name: '电子元件', t: '2' },
+  { code: 'BK1039', name: '半导体', t: '2' },
+  { code: 'BK1173', name: '锂矿概念', t: '3' },
+  { code: 'BK0894', name: '阿兹海默', t: '3' },
+  { code: 'BK1146', name: '减肥药', t: '3' },
+  { code: 'BK0855', name: '纳米银', t: '3' },
+  { code: 'BK1021', name: '宁德时代产业链', t: '3' },
+  { code: 'BK0864', name: '新能源汽车', t: '3' },
+  { code: 'BK0732', name: '人工智能', t: '3' },
+  { code: 'BK0728', name: '机器人概念', t: '3' },
+  { code: 'BK0675', name: '苹果概念', t: '3' },
 ]

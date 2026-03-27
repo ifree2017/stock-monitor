@@ -1,9 +1,46 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { StockQuote, AnalysisResult, IntradayData, MonitorItem } from './types/stock'
-import { fetchQuotes, fetchIntraday, fetchSectorBoard, BOARD_LIST } from './lib/stockApi'
+import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember } from './types/stock'
+import { fetchQuotes, fetchIntraday, fetchSectorBoard, fetchSectorLeaders, BOARD_LIST } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
+
+// ── 五档行情 ───────────────────────────────────────────────────
+function OrderBook({ quote }: { quote: StockQuote }) {
+  const maxVol = Math.max(...quote.bidVolumes, ...quote.askVolumes, 1)
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+      <div className="space-y-0.5">
+        <p className="text-slate-500 text-center text-[10px] mb-1">卖盘</p>
+        {[...quote.askVolumes].reverse().map((vol, i) => (
+          <div key={i} className="flex items-center gap-1 justify-end">
+            <span className="w-10 text-right text-slate-400 font-mono text-[11px]">
+              {vol >= 10000 ? `${(vol / 10000).toFixed(1)}万` : vol}
+            </span>
+            <div className="flex-1 flex justify-end">
+              <div className="h-1.5 bg-red-500/50 rounded-sm" style={{ width: `${vol / maxVol * 100}%` }} />
+            </div>
+            <span className="w-12 text-right text-red-400 font-mono">{fmt(quote.askPrices[4 - i])}</span>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-slate-500 text-center text-[10px] mb-1">买盘</p>
+        {quote.bidVolumes.map((vol, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <span className="w-12 text-green-400 font-mono">{fmt(quote.bidPrices[i])}</span>
+            <div className="flex-1">
+              <div className="h-1.5 bg-green-500/50 rounded-sm" style={{ width: `${vol / maxVol * 100}%` }} />
+            </div>
+            <span className="w-10 text-slate-400 font-mono text-[11px]">
+              {vol >= 10000 ? `${(vol / 10000).toFixed(1)}万` : vol}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── helpers ───────────────────────────────────────────────────────
 function fmt(n: number, d = 2) { return n.toFixed(d) }
@@ -225,10 +262,23 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
   const limitUpPrice = ((quote?.prevClose ?? 0) * 1.1).toFixed(2)
   const isLimitUp = quote ? Math.abs(quote.price - parseFloat(limitUpPrice)) < 0.01 && quote.zs >= 9.9 : false
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ anchorCode: item.anchorCode, anchorName: item.anchorName, boardCode: item.boardCode, boardName: item.boardName })
+  const [form, setForm] = useState({
+    anchorCode: item.anchorCode,
+    anchorName: item.anchorName,
+    boardCode: item.boardCode,
+    boardName: item.boardName,
+    shares: item.holding?.shares ?? 0,
+    avgCost: item.holding?.avgCost ?? 0,
+  })
 
-  const handleSaveAnchor = () => {
-    onUpdate({ anchorCode: form.anchorCode, anchorName: form.anchorName, boardCode: form.boardCode, boardName: form.boardName })
+  const handleSave = () => {
+    onUpdate({
+      anchorCode: form.anchorCode,
+      anchorName: form.anchorName,
+      boardCode: form.boardCode,
+      boardName: form.boardName,
+      holding: item.isHolding ? { shares: form.shares, avgCost: form.avgCost } : undefined,
+    })
     setEditing(false)
   }
 
@@ -272,7 +322,12 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
         />
       )}
 
-      {/* 持仓信息编辑 */}
+      {/* 五档行情 */}
+      {quote && (
+        <OrderBook quote={quote} />
+      )}
+
+      {/* 持仓信息 */}
       {item.isHolding && item.holding && (
         <div className={`flex justify-between text-xs px-2 py-1.5 rounded-lg ${(analysis?.pnl?.amount ?? 0) >= 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
           <span className="text-slate-400">浮盈 {item.holding.shares}股/{item.holding.avgCost}元</span>
@@ -302,24 +357,42 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
 
         {editing && (
           <div className="bg-slate-900/60 rounded-lg p-2 space-y-2 text-xs">
+            {/* 持仓编辑 */}
+            {item.isHolding && (
+              <div className="border-b border-slate-700 pb-2 mb-1">
+                <p className="text-slate-400 text-[9px] mb-1">💼 持仓信息</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <label className="text-slate-500 text-[9px]">股数</label>
+                    <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs" type="number" value={form.shares} onChange={e => setForm(f => ({ ...f, shares: Number(e.target.value) }))} placeholder="1000" />
+                  </div>
+                  <div>
+                    <label className="text-slate-500 text-[9px]">成本价</label>
+                    <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs" type="number" step="0.01" value={form.avgCost} onChange={e => setForm(f => ({ ...f, avgCost: Number(e.target.value) }))} placeholder="8.50" />
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* 锚点 */}
             <div>
-              <label className="text-slate-500 text-[9px]">锚点股票代码</label>
-              <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs mt-0.5" value={form.anchorCode} onChange={e => setForm(f => ({ ...f, anchorCode: e.target.value }))} placeholder="如 600666" />
+              <label className="text-slate-500 text-[9px]">⚓ 锚点股票代码</label>
+              <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs" value={form.anchorCode} onChange={e => setForm(f => ({ ...f, anchorCode: e.target.value }))} placeholder="如 600666" />
             </div>
             <div>
               <label className="text-slate-500 text-[9px]">锚点名称</label>
-              <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs mt-0.5" value={form.anchorName} onChange={e => setForm(f => ({ ...f, anchorName: e.target.value }))} placeholder="如 奥瑞德" />
+              <input className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs" value={form.anchorName} onChange={e => setForm(f => ({ ...f, anchorName: e.target.value }))} placeholder="如 奥瑞德" />
             </div>
+            {/* 板块 */}
             <div>
-              <label className="text-slate-500 text-[9px]">关联板块</label>
-              <select className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs mt-0.5" value={form.boardCode} onChange={e => {
+              <label className="text-slate-500 text-[9px]">📊 关联板块</label>
+              <select className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs" value={form.boardCode} onChange={e => {
                 const b = BOARD_LIST.find(b => b.code === e.target.value)
                 setForm(f => ({ ...f, boardCode: e.target.value, boardName: b?.name || f.boardName }))
               }}>
                 {BOARD_LIST.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
               </select>
             </div>
-            <button onClick={handleSaveAnchor} className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs py-1 rounded transition-colors">保存设置</button>
+            <button onClick={handleSave} className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs py-1.5 rounded transition-colors font-medium">保存</button>
           </div>
         )}
       </div>
@@ -329,7 +402,7 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
 
 // ── 添加标的弹窗 ─────────────────────────────────────────────────
 function AddStockModal({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (item: Omit<MonitorItem, 'id'>) => void }) {
-  const [form, setForm] = useState({ code: '', name: '', isHolding: false, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'sh883441', boardName: '电子元件' })
+  const [form, setForm] = useState({ code: '', name: '', isHolding: false, shares: 0, avgCost: 0, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'BK1028', boardName: '电子元件' })
 
   if (!open) return null
   return (
@@ -346,18 +419,18 @@ function AddStockModal({ open, onClose, onAdd }: { open: boolean; onClose: () =>
             <input className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500" placeholder="如 奥瑞德" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
           <div className="flex items-center gap-2">
-            <input type="checkbox" id="isHolding" checked={form.isHolding} onChange={e => setForm(f => ({ ...f, isHolding: e.target.checked }))} className="accent-blue-500" />
-            <label htmlFor="isHolding" className="text-xs text-slate-300">设为持仓股（可输入股数/成本）</label>
+            <input type="checkbox" id="isHolding" checked={form.isHolding} onChange={e => setForm(f => ({ ...f, isHolding: e.target.checked }))} className="accent-blue-500 w-4 h-4" />
+            <label htmlFor="isHolding" className="text-xs text-slate-300">设为持仓股</label>
           </div>
           {form.isHolding && (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">股数</label>
-                <input className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-xs" placeholder="1000" />
+                <input className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-xs" type="number" value={form.shares || ''} onChange={e => setForm(f => ({ ...f, shares: Number(e.target.value) }))} placeholder="1000" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">成本价</label>
-                <input className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-xs" placeholder="8.50" />
+                <input className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-xs" type="number" step="0.01" value={form.avgCost || ''} onChange={e => setForm(f => ({ ...f, avgCost: Number(e.target.value) }))} placeholder="8.50" />
               </div>
             </div>
           )}
@@ -367,8 +440,17 @@ function AddStockModal({ open, onClose, onAdd }: { open: boolean; onClose: () =>
           <button onClick={() => {
             if (!form.code) return
             const cleanCode = form.code.replace(/\D/g, '').padStart(6, '0')
-            onAdd({ code: cleanCode, name: form.name || cleanCode, isHolding: form.isHolding, anchorCode: form.anchorCode, anchorName: form.anchorName, boardCode: form.boardCode, boardName: form.boardName, holding: form.isHolding ? { shares: 0, avgCost: 0 } : undefined })
-            setForm({ code: '', name: '', isHolding: false, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'sh883441', boardName: '电子元件' })
+            onAdd({
+              code: cleanCode,
+              name: form.name || cleanCode,
+              isHolding: form.isHolding,
+              anchorCode: form.anchorCode,
+              anchorName: form.anchorName,
+              boardCode: form.boardCode,
+              boardName: form.boardName,
+              holding: form.isHolding ? { shares: form.shares, avgCost: form.avgCost } : undefined,
+            })
+            setForm({ code: '', name: '', isHolding: false, shares: 0, avgCost: 0, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'BK1028', boardName: '电子元件' })
             onClose()
           }} className="flex-1 py-2 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 transition-colors font-medium">添加</button>
         </div>
@@ -384,6 +466,7 @@ export default function StockMonitorPage() {
   const [analyses, setAnalyses] = useState<Record<string, AnalysisResult>>({})
   const [intraday, setIntraday] = useState<Record<string, [string, number][]>>({})
   const [boards, setBoards] = useState<Record<string, { name: string; change: number }>>({})
+  const [sectorMembers, setSectorMembers] = useState<BoardMember[]>([])
   const [lastUpdate, setLastUpdate] = useState('—')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -453,6 +536,15 @@ export default function StockMonitorPage() {
         }
       })
       setIntraday(intraMap)
+
+      // 概念板块成分股（取第一个标的的板块）
+      const primaryItem = items[0]
+      if (primaryItem?.boardCode) {
+        const boardInfo = BOARD_LIST.find(b => b.code === primaryItem.boardCode)
+        const t = boardInfo?.t || '2'
+        const members = await fetchSectorLeaders(primaryItem.boardCode, t, 10)
+        setSectorMembers(members)
+      }
 
       setLastUpdate(new Date().toLocaleTimeString('zh-CN'))
     } catch (e: unknown) {
@@ -543,9 +635,36 @@ export default function StockMonitorPage() {
             )}
           </div>
 
-          {/* 右：监控一览 */}
+          {/* 右：监控一览 + 概念板块 */}
           <div className="space-y-3">
             <MonitorOverviewPanel items={items} quotes={quotes} />
+            {sectorMembers.length > 0 && (
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-3">
+                <h3 className="text-xs font-semibold mb-2 flex items-center gap-1">
+                  <span>📊</span> 概念板块
+                  <span className="text-slate-500 font-normal text-[10px] ml-1">
+                    — {items[0]?.boardName || '电子元件'}
+                  </span>
+                </h3>
+                <div className="space-y-0.5 max-h-52 overflow-y-auto">
+                  {[...sectorMembers].sort((a, b) => b.zs - a.zs).map(m => (
+                    <div key={m.code} className="flex items-center justify-between text-xs py-0.5 px-1 rounded hover:bg-slate-700/40">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`text-[10px] px-1 py-0.5 rounded font-mono flex-shrink-0 font-bold ${
+                          m.zs > 0 ? 'bg-red-500/20 text-red-400' :
+                          m.zs < 0 ? 'bg-green-500/20 text-green-400' :
+                          'bg-slate-700 text-slate-400'
+                        }`}>
+                          {m.zs > 0 ? '+' : ''}{m.zs.toFixed(2)}%
+                        </span>
+                        <span className="text-slate-300 truncate">{m.name}</span>
+                      </div>
+                      <span className="text-slate-400 font-mono flex-shrink-0 ml-2 text-[11px]">{m.price.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

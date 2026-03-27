@@ -27,6 +27,8 @@ export interface MonitorItem {
 export interface BoardInfo {
   code: string
   name: string
+  isIndex?: boolean
+  t?: string  // '2'=行业 '3'=概念
 }
 
 // 共振结果
