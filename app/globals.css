@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 20% 6%;
+  --foreground: 210 40% 96%;
+  --card: 220 18% 9%;
+  --card-foreground: 210 40% 96%;
+  --primary: 142 76% 36%;
+  --primary-foreground: 355.7 100% 97.3%;
+  --destructive: 0 84.2% 60.2%;
+  --up: 142 76% 36%;
+  --down: 0 74% 50%;
+  --muted: 215 20% 20%;
+  --muted-foreground: 215 20% 65%;
+  --border: 215 20% 18%;
+  --ring: 142 76% 36%;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.up-color { color: #ef4444; }
+.down-color { color: #22c55e; }
+.flat-color { color: #94a3b8; }
+
+.bg-up { background-color: #ef4444; }
+.bg-down { background-color: #22c55e; }
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.glow-up {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+  color: #ef4444;
+}
+.glow-down {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+  color: #22c55e;
+}
+
+/* 成交量的柱子 */
+.volume-bar {
+  width: 100%;
+  background: hsl(var(--muted));
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* 五档行情 */
+.order-book-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.order-book-bar {
+  height: 6px;
+  border-radius: 3px;
+  transition: width 0.5s;
+  min-width: 2px;
+}
+
+/* 建议标签 */
+.signal-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.signal-buy { background: #dc2626; color: white; }
+.signal-hold { background: #d97706; color: white; }
+.signal-sell { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+.signal-strong { background: linear-gradient(135deg, #dc2626, #f97316); color: white; }
