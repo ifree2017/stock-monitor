@@ -1,9 +1,39 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember, MinuteBar } from './types/stock'
 import { fetchQuotes, fetchIntraday, fetchSectorBoard, fetchSectorLeaders, BOARD_LIST } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
+import { monitorApi, holdingsApi } from './api/client'
+import { useAuth } from '../contexts/AuthContext'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis, BarChart, Bar, Cell } from 'recharts'
+
+// API类型 → 页面类型 转换
+function apiItemToLocal(apiItem: any): MonitorItem {
+  return {
+    id: apiItem.id,
+    code: apiItem.stock_code,
+    name: apiItem.stock_name,
+    isHolding: false,
+    anchorCode: apiItem.anchor_code || '',
+    anchorName: apiItem.anchor_name || '',
+    boardCode: apiItem.board_code || '',
+    boardName: apiItem.board_name || '',
+  }
+}
+
+// 页面类型 → API类型 转换
+function localItemToApi(item: Omit<MonitorItem, 'id'>): any {
+  return {
+    stock_code: item.code,
+    stock_name: item.name,
+    anchor_code: item.anchorCode,
+    anchor_name: item.anchorName,
+    board_code: item.boardCode,
+    board_name: item.boardName,
+    sort_order: 0,
+  }
+}
 
 // ── 成交分时图（量柱）────────────────────────────────────────────
 function VolumeBars({ bars, prevClose }: { bars: MinuteBar[] | null; prevClose: number }) {
@@ -536,21 +566,36 @@ export default function StockMonitorPage() {
   const [showAdd, setShowAdd] = useState(false)
   const autoTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // 初始化：从 localStorage 加载
+  // 认证守卫
+  const { user, loading: authLoading, logout } = useAuth()
+  const router = useRouter()
   useEffect(() => {
-    const saved = (() => {
-      try { return JSON.parse(localStorage.getItem('stock-monitor-config') || 'null') as MonitorItem[] | null } catch { return null }
-    })()
-    setItems(saved || [
-      { id: '1', code: '002575', name: '群兴玩具', isHolding: true, holding: { shares: 1000, avgCost: 8.50 }, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'sh883441', boardName: '电子元件' },
-      { id: '2', code: '600666', name: '奥瑞德', isHolding: false, anchorCode: '', anchorName: '', boardCode: 'sh883441', boardName: '电子元件' },
-    ])
-  }, [])
+    if (!authLoading && !user) router.push('/login')
+  }, [user, authLoading, router])
 
-  // 保存到 localStorage
+  // 初始化：从 API 加载监控标的
+  useEffect(() => {
+    if (!user) return
+    monitorApi.list().then(apiItems => {
+      if (apiItems.length > 0) {
+        setItems(apiItems.map(apiItemToLocal))
+      } else {
+        setItems([
+          { id: '1', code: '002575', name: '群兴玩具', isHolding: false, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'sh883441', boardName: '电子元件' },
+          { id: '2', code: '600666', name: '奥瑞德', isHolding: false, anchorCode: '', anchorName: '', boardCode: 'sh883441', boardName: '电子元件' },
+        ])
+      }
+    }).catch(() => {
+      setItems([
+        { id: '1', code: '002575', name: '群兴玩具', isHolding: false, anchorCode: '600666', anchorName: '奥瑞德', boardCode: 'sh883441', boardName: '电子元件' },
+        { id: '2', code: '600666', name: '奥瑞德', isHolding: false, anchorCode: '', anchorName: '', boardCode: 'sh883441', boardName: '电子元件' },
+      ])
+    })
+  }, [user])
+
+  // 保存到后端
   const saveItems = useCallback((newItems: MonitorItem[]) => {
     setItems(newItems)
-    try { localStorage.setItem('stock-monitor-config', JSON.stringify(newItems)) } catch {}
   }, [])
 
   const loadData = useCallback(async () => {
@@ -621,36 +666,66 @@ export default function StockMonitorPage() {
     return () => { if (autoTimer.current) clearInterval(autoTimer.current) }
   }, [loadData])
 
-  const removeItem = (id: string) => saveItems(items.filter(i => i.id !== id))
-  const updateItem = (id: string, updates: Partial<MonitorItem>) => {
+  const removeItem = async (id: string) => {
+    try { await monitorApi.delete(id) } catch {}
+    saveItems(items.filter(i => i.id !== id))
+  }
+  const updateItem = async (id: string, updates: Partial<MonitorItem>) => {
+    try {
+      await monitorApi.update(id, {
+        anchor_code: updates.anchorCode,
+        anchor_name: updates.anchorName,
+        board_code: updates.boardCode,
+        board_name: updates.boardName,
+      })
+    } catch {}
     saveItems(items.map(i => i.id === id ? { ...i, ...updates } : i))
-    // 如果锚点变了，刷新锚点行情
     if (updates.anchorCode !== undefined || updates.boardCode !== undefined) {
       setTimeout(loadData, 500)
     }
   }
-  const addItem = (item: Omit<MonitorItem, 'id'>) => {
-    const newItem: MonitorItem = { ...item, id: Date.now().toString() }
-    saveItems([...items, newItem])
+  const addItem = async (item: Omit<MonitorItem, 'id'>) => {
+    // 先创建持仓（如有）
+    if (item.isHolding && item.holding) {
+      try {
+        await holdingsApi.create({ stock_code: item.code, stock_name: item.name, shares: item.holding.shares, avg_cost: item.holding.avgCost })
+      } catch {}
+    }
+    // 再创建监控标的
+    try {
+      const created = await monitorApi.create(localItemToApi(item))
+      saveItems([...items, apiItemToLocal(created)])
+    } catch {
+      saveItems([...items, { ...item, id: Date.now().toString() } as MonitorItem])
+    }
   }
+
+  const handleLogout = () => { logout(); router.push('/login') }
 
   return (
     <div className="min-h-screen bg-background">
       {/* 顶部栏 */}
       <header className="sticky top-0 z-50 bg-background/90 backdrop-blur border-b border-slate-800 px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="font-bold text-sm">📈 A股实时监控</h1>
-            <p className="text-slate-500 text-[10px]">最后更新 {lastUpdate} · 每30s自动刷新</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-base font-bold text-white">📈 A股实时监控</h1>
+            {user && <span className="text-slate-500 text-xs hidden sm:inline">| {user.username}</span>}
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowAdd(true)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors">+ 添加标的</button>
-            <button onClick={loadData} disabled={isLoading} className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors">
-              <svg className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {isLoading ? '…' : '刷新'}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push('/settings')}
+              className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              ⚙ 设置
             </button>
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="text-slate-400 hover:text-red-400 text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                退出
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -730,7 +805,7 @@ export default function StockMonitorPage() {
         </div>
 
         <div className="text-center text-slate-600 text-[10px] pb-4">
-          数据来源：腾讯财经免费行情接口 · 本地存储不涉及后端<br />
+          数据来源：腾讯财经免费行情接口 · 后端 PostgreSQL 持久化<br />
           本工具仅供参考，不构成投资建议。股市有风险，投资需谨慎。
         </div>
       </main>
