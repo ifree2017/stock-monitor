@@ -7,6 +7,8 @@ import { analyzeStock } from './lib/analysis'
 import { monitorApi, holdingsApi } from './api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis, BarChart, Bar, Cell } from 'recharts'
+import dynamic from 'next/dynamic'
+const StockPicker = dynamic(() => import('../components/StockPicker'), { ssr: false })
 
 // API类型 → 页面类型 转换
 function apiItemToLocal(apiItem: any): MonitorItem {
@@ -564,6 +566,7 @@ export default function StockMonitorPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const autoTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 认证守卫
@@ -713,6 +716,12 @@ export default function StockMonitorPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowPicker(true)}
+              className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              📊 选股
+            </button>
+            <button
               onClick={() => router.push('/settings')}
               className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
             >
@@ -731,6 +740,17 @@ export default function StockMonitorPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
+        {/* 操作栏 */}
+        <div className="flex items-center justify-between">
+          <p className="text-slate-500 text-[10px]">最后更新 {lastUpdate}</p>
+          <div className="flex gap-2">
+            <button onClick={() => setShowAdd(true)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors">+ 添加标的</button>
+            <button onClick={loadData} disabled={isLoading} className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors">
+              {isLoading ? '…' : '↻'} 刷新
+            </button>
+          </div>
+        </div>
+
         {/* 错误 */}
         {error && (
           <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-3 py-2 text-xs">
@@ -811,6 +831,15 @@ export default function StockMonitorPage() {
       </main>
 
       <AddStockModal open={showAdd} onClose={() => setShowAdd(false)} onAdd={addItem} />
+      {showPicker && (
+        <StockPicker
+          onClose={() => setShowPicker(false)}
+          onAdd={(code, name, boardCode, boardName) => {
+            addItem({ code, name, isHolding: false, anchorCode: '', anchorName: '', boardCode, boardName })
+            setShowPicker(false)
+          }}
+        />
+      )}
     </div>
   )
 }
