@@ -3,7 +3,40 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember } from './types/stock'
 import { fetchQuotes, fetchIntraday, fetchSectorBoard, fetchSectorLeaders, BOARD_LIST } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
-import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
+import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis, BarChart, Bar, Cell } from 'recharts'
+
+// ── 成交分时图（量柱）────────────────────────────────────────────
+function VolumeBars({ bars, prevClose }: { bars: MinuteBar[]; prevClose: number }) {
+  if (!bars || bars.length === 0) return null
+  const maxVol = Math.max(...bars.map(b => b.volume), 1)
+  const upColor = '#ef4444'
+  const downColor = '#22c55e'
+  const data = bars.map(b => ({
+    time: b.time,
+    price: b.price,
+    volume: b.volume,
+    isUp: b.price >= prevClose,
+  }))
+  return (
+    <div className="h-12 bg-slate-900/50 rounded-lg px-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
+          <YAxis hide domain={[0, maxVol * 1.1]} />
+          <Tooltip
+            contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 6, fontSize: 10, color: '#e2e8f0', padding: '2px 6px' }}
+            formatter={(v: number, name: string) => [name === 'volume' ? `${(v / 10000).toFixed(1)}万手` : v.toFixed(2), name === 'volume' ? '成交量' : '价格']}
+            labelStyle={{ color: '#64748b', fontSize: 9 }}
+          />
+          <Bar dataKey="volume" radius={[1, 1, 0, 0]} isAnimationActive={false}>
+            {data.map((entry, index) => (
+              <Cell key={index} fill={entry.isUp ? upColor : downColor} fillOpacity={0.6} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
 // ── 五档行情 ───────────────────────────────────────────────────
 function OrderBook({ quote }: { quote: StockQuote }) {
@@ -312,15 +345,9 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
         <div className="text-slate-500 text-sm">加载中…</div>
       )}
 
-      {/* 分时图 */}
-      {quote && (
-        <MiniChart
-          bars={intraday || []}
-          price={quote.price}
-          prevClose={quote.prevClose}
-          zs={quote.zs}
-        />
-      )}
+      {/* 分时价格线 + 成交量柱 */}
+      <PriceChart data={intraday} />
+      <VolumeBars data={intraday} />
 
       {/* 五档行情 */}
       {quote && (
@@ -464,7 +491,7 @@ export default function StockMonitorPage() {
   const [items, setItems] = useState<MonitorItem[]>([])
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({})
   const [analyses, setAnalyses] = useState<Record<string, AnalysisResult>>({})
-  const [intraday, setIntraday] = useState<Record<string, [string, number][]>>({})
+  const [intraday, setIntraday] = useState<Record<string, IntradayData | null>>({})
   const [boards, setBoards] = useState<Record<string, { name: string; change: number }>>({})
   const [sectorMembers, setSectorMembers] = useState<BoardMember[]>([])
   const [lastUpdate, setLastUpdate] = useState('—')
@@ -528,12 +555,10 @@ export default function StockMonitorPage() {
       // 分时（只拉前3个）
       const intraCodes = items.slice(0, 3).map(i => i.code)
       const intraResults = await Promise.allSettled(intraCodes.map(code => fetchIntraday(code)))
-      const intraMap: Record<string, [string, number][]> = {}
+      const intraMap: Record<string, IntradayData | null> = {}
       intraCodes.forEach((code, i) => {
         const result = intraResults[i]
-        if (result.status === 'fulfilled' && result.value?.bars) {
-          intraMap[code] = result.value.bars.map(b => [b.time, b.price])
-        }
+        intraMap[code] = result.status === 'fulfilled' ? result.value : null
       })
       setIntraday(intraMap)
 

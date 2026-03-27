@@ -107,43 +107,41 @@ export const STOCK_INFO: Record<string, {
   '600666': { name: '奥瑞德',   board: '电子元件', anchor: '',      boardCode: '883441' },
 }
 
-// ── 分时行情 ────────────────────────────────────────────────────────
-const INTRADAY_API = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query'
-
+// ── 分时行情（东方财富趋势 API，更完整）─────────────────────────
 export async function fetchIntraday(code: string): Promise<IntradayData | null> {
-  const prefix = code.startsWith('60') ? 'sh' : 'sz'
-  // 正确的 API 格式：code 作为独立参数
-  const url = `${INTRADAY_API}?_var=min_data&code=${prefix}${code}&type=&start=&num=320`
+  const secid = code.startsWith('60') ? `1.${code}` : `0.${code}`
+  const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1&iscr=0`
   try {
     const res = await fetch(url, {
-      headers: { 'Referer': 'https://finance.qq.com', 'User-Agent': 'Mozilla/5.0' },
+      headers: { 'Referer': 'https://quote.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
       cache: 'no-store',
     })
     if (!res.ok) return null
-    const buffer = await res.arrayBuffer()
-    const text = new TextDecoder('utf-8').decode(buffer)
-    const json = text.replace(/^[^=]+=/, '')
-    const data = JSON.parse(json)
-    const item = data?.data?.[`${prefix}${code}`]
-    const rawBars: string[] = item?.data?.data || []
-    const prevClose = item?.qfq || item?.yclose || 0
-    const todayOpen = item?.open || 0
-    const bars: MinuteBar[] = rawBars.map(raw => {
-      const parts = raw.trim().split(/\s+/)
-      return {
-        time: parts[0] || '',
-        price: parseFloat(parts[1]) || 0,
-        volume: parseInt(parts[2]) || 0,
-        avgPrice: parseFloat(parts[3]) || 0,
+    const data = await res.json()
+    const trends: string[] = data?.data?.trends || []
+    const prevClose = parseFloat(data?.data?.preClose || '0') || 0
+    const todayOpen = parseFloat(data?.data?.open || '0') || 0
+    const name = data?.data?.name || code
+    // trends 格式: "时间,开,高,低,收,成交量,成交额,VWAP"  或  "时间,价格,成交量,成交额"
+    const bars: MinuteBar[] = trends.map(raw => {
+      const parts = raw.split(',')
+      if (parts.length >= 5) {
+        return {
+          time: parts[0] || '',
+          price: parseFloat(parts[4]) || 0,
+          volume: parseInt(parts[5]) || 0,
+          avgPrice: parseFloat(parts[7]) || 0,
+        }
+      } else {
+        return {
+          time: parts[0] || '',
+          price: parseFloat(parts[1]) || 0,
+          volume: parseInt(parts[2]) || 0,
+          avgPrice: 0,
+        }
       }
     })
-    return {
-      code,
-      name: code,
-      prevClose: parseFloat(String(prevClose)) || 0,
-      todayOpen: parseFloat(String(todayOpen)) || 0,
-      bars,
-    }
+    return { code, name, prevClose, todayOpen, bars }
   } catch {
     return null
   }
