@@ -112,10 +112,11 @@ const INTRADAY_API = 'https://web.ifzq.gtimg.cn/appstock/app/minute/query'
 
 export async function fetchIntraday(code: string): Promise<IntradayData | null> {
   const prefix = code.startsWith('60') ? 'sh' : 'sz'
-  const url = `${INTRADAY_API}?_var=min_data&param=${prefix}${code},,,,320,`
+  // 正确的 API 格式：code 作为独立参数
+  const url = `${INTRADAY_API}?_var=min_data&code=${prefix}${code}&type=&start=&num=320`
   try {
     const res = await fetch(url, {
-      headers: { 'Referer': 'https://finance.qq.com' },
+      headers: { 'Referer': 'https://finance.qq.com', 'User-Agent': 'Mozilla/5.0' },
       cache: 'no-store',
     })
     if (!res.ok) return null
@@ -123,17 +124,24 @@ export async function fetchIntraday(code: string): Promise<IntradayData | null> 
     const text = new TextDecoder('utf-8').decode(buffer)
     const json = text.replace(/^[^=]+=/, '')
     const data = JSON.parse(json)
-    const minuteData = data?.data?.[`${prefix}${code}`]
-    if (!minuteData) return null
-    const prevClose = minuteData.qfq || minuteData.yclose || 0
-    const todayOpen = minuteData.open || 0
-    const rawBars: [string, number, number][] = minuteData.data || []
-    const bars: MinuteBar[] = rawBars.map(([time, price, vol]) => ({ time, price, volume: vol || 0, avgPrice: price }))
+    const item = data?.data?.[`${prefix}${code}`]
+    const rawBars: string[] = item?.data?.data || []
+    const prevClose = item?.qfq || item?.yclose || 0
+    const todayOpen = item?.open || 0
+    const bars: MinuteBar[] = rawBars.map(raw => {
+      const parts = raw.trim().split(/\s+/)
+      return {
+        time: parts[0] || '',
+        price: parseFloat(parts[1]) || 0,
+        volume: parseInt(parts[2]) || 0,
+        avgPrice: parseFloat(parts[3]) || 0,
+      }
+    })
     return {
       code,
-      name: minuteData.name || code,
-      prevClose: parseFloat(prevClose) || 0,
-      todayOpen: parseFloat(todayOpen) || 0,
+      name: code,
+      prevClose: parseFloat(String(prevClose)) || 0,
+      todayOpen: parseFloat(String(todayOpen)) || 0,
       bars,
     }
   } catch {
@@ -141,27 +149,24 @@ export async function fetchIntraday(code: string): Promise<IntradayData | null> 
   }
 }
 
-// ── 板块成分股排行 ────────────────────────────────────────────────
-const SECTOR_API = 'https://proxy.finance.qq.com/ifzqgtstock/appstock/app/rank/getSectorMembers'
-
+// ── 板块成分股排行（东方财富接口）──────────────────────────────
 export async function fetchSectorLeaders(boardCode: string, num = 8): Promise<BoardMember[]> {
   if (!boardCode) return []
+  // 东方财富板块成分股接口
+  const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${num}&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:${boardCode.replace('sh', '').replace('sz', '')}&fields=f12,f14,f3,f4`
   try {
-    const url = `${SECTOR_API}?plat=pc&industryCode=${boardCode}&type=&start=0&num=${num}&_var=sector_data`
     const res = await fetch(url, {
-      headers: { 'Referer': 'https://finance.qq.com' },
+      headers: { 'Referer': 'https://quote.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
       cache: 'no-store',
     })
     if (!res.ok) return []
-    const text = await res.text()
-    const jsonStr = text.replace(/^[^=]+=/, '')
-    const data = JSON.parse(jsonStr)
-    const members: [string, string, number, number][] = data?.data?.[boardCode]?.sector_stocks || []
-    return members.map(([code, name, price, zs]: [string, string, number, number]) => ({
-      code,
-      name,
-      price: parseFloat(String(price)) || 0,
-      zs: parseFloat(String(zs)) || 0,
+    const data = await res.json()
+    const items: Array<{ f12: string; f14: string; f3: number; f4: number }> = data?.data?.diff || []
+    return items.map(item => ({
+      code: item.f12 || '',
+      name: item.f14 || '',
+      price: parseFloat(String(item.f4)) || 0,
+      zs: parseFloat(String(item.f3)) || 0,
     }))
   } catch {
     return []

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember } from './types/stock'
-import { fetchQuotes, fetchIntraday, fetchSectorBoard, fetchSectorLeaders, BOARD_LIST } from './lib/stockApi'
+import type { StockQuote, AnalysisResult, IntradayData, MonitorItem } from './types/stock'
+import { fetchQuotes, fetchIntraday, fetchSectorBoard, BOARD_LIST } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis } from 'recharts'
 
@@ -51,28 +51,45 @@ function MiniChart({ bars, price, prevClose, zs }: { bars: [string, number][]; p
   )
 }
 
-// ── 板块成分股列表 ────────────────────────────────────────────────
-function SectorBoardPanel({ members, boardName }: { members: BoardMember[]; boardName: string }) {
-  if (members.length === 0) return null
-  const sorted = [...members].sort((a, b) => b.zs - a.zs)
+// ── 监控标的一览（按涨跌幅排序）────────────────────────────────
+function MonitorOverviewPanel({ items, quotes }: { items: MonitorItem[]; quotes: Record<string, StockQuote> }) {
+  const sorted = [...items]
+    .map(item => ({ item, quote: quotes[item.code] }))
+    .filter(x => x.quote)
+    .sort((a, b) => (b.quote?.zs ?? 0) - (a.quote?.zs ?? 0))
+
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-3">
       <h3 className="text-xs font-semibold mb-2 flex items-center gap-1">
-        <span>📊</span> 板块行情
-        <span className="text-slate-500 font-normal"> — {boardName}</span>
+        <span>📊</span> 监控标的一览
+        <span className="text-slate-500 font-normal text-[10px] ml-1">— 按涨跌幅排序</span>
       </h3>
-      <div className="space-y-0.5 max-h-48 overflow-y-auto">
-        {sorted.map(m => (
-          <div key={m.code} className="flex items-center justify-between text-xs py-0.5 px-1 rounded hover:bg-slate-700/40">
+      <div className="space-y-0.5 max-h-52 overflow-y-auto">
+        {sorted.map(({ item, quote }) => (
+          <div key={item.id} className="flex items-center justify-between text-xs py-1 px-1 rounded hover:bg-slate-700/40">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className={`text-[10px] px-1 py-0.5 rounded font-mono flex-shrink-0 ${m.zs > 0 ? 'bg-red-500/10 text-red-400' : m.zs < 0 ? 'bg-green-500/10 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-                {m.zs > 0 ? '+' : ''}{m.zs.toFixed(2)}%
+              <span className={`text-[10px] px-1 py-0.5 rounded font-mono flex-shrink-0 font-bold ${
+                item.isHolding ? 'bg-blue-500/20 text-blue-400' : 'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {item.isHolding ? '💼' : '⚓'}
               </span>
-              <span className="text-slate-300 truncate">{m.name}</span>
+              <span className="text-slate-300 truncate">{quote?.name}</span>
             </div>
-            <span className="text-slate-400 font-mono flex-shrink-0 ml-1">{m.price.toFixed(2)}</span>
+            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                (quote?.zs ?? 0) > 0 ? 'bg-red-500/20 text-red-400' :
+                (quote?.zs ?? 0) < 0 ? 'bg-green-500/20 text-green-400' :
+                'bg-slate-700 text-slate-400'
+              }`}>
+                {(quote?.zs ?? 0) > 0 ? '+' : ''}{(quote?.zs ?? 0).toFixed(2)}%
+              </span>
+              <span className="text-slate-400 font-mono text-[10px] w-14 text-right">{quote?.price.toFixed(2)}</span>
+            </div>
           </div>
         ))}
+        {sorted.length === 0 && (
+          <div className="text-slate-600 text-xs text-center py-4">暂无数据</div>
+        )}
       </div>
     </div>
   )
@@ -367,7 +384,6 @@ export default function StockMonitorPage() {
   const [analyses, setAnalyses] = useState<Record<string, AnalysisResult>>({})
   const [intraday, setIntraday] = useState<Record<string, [string, number][]>>({})
   const [boards, setBoards] = useState<Record<string, { name: string; change: number }>>({})
-  const [sectorMembers, setSectorMembers] = useState<BoardMember[]>([])
   const [lastUpdate, setLastUpdate] = useState('—')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -437,13 +453,6 @@ export default function StockMonitorPage() {
         }
       })
       setIntraday(intraMap)
-
-      // 板块排行（只拉第一个标的的板块）
-      const primaryBoard = items[0]?.boardCode
-      if (primaryBoard) {
-        const members = await fetchSectorLeaders(primaryBoard, 8)
-        setSectorMembers(members)
-      }
 
       setLastUpdate(new Date().toLocaleTimeString('zh-CN'))
     } catch (e: unknown) {
@@ -534,12 +543,9 @@ export default function StockMonitorPage() {
             )}
           </div>
 
-          {/* 右：板块行情 */}
+          {/* 右：监控一览 */}
           <div className="space-y-3">
-            <SectorBoardPanel
-              members={sectorMembers}
-              boardName={items[0]?.boardName || '电子元件'}
-            />
+            <MonitorOverviewPanel items={items} quotes={quotes} />
           </div>
         </div>
 
