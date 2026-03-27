@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember } from './types/stock'
+import type { StockQuote, AnalysisResult, IntradayData, MonitorItem, BoardMember, MinuteBar } from './types/stock'
 import { fetchQuotes, fetchIntraday, fetchSectorBoard, fetchSectorLeaders, BOARD_LIST } from './lib/stockApi'
 import { analyzeStock } from './lib/analysis'
 import { LineChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, YAxis, BarChart, Bar, Cell } from 'recharts'
 
 // ── 成交分时图（量柱）────────────────────────────────────────────
-function VolumeBars({ bars, prevClose }: { bars: MinuteBar[]; prevClose: number }) {
+function VolumeBars({ bars, prevClose }: { bars: MinuteBar[] | null; prevClose: number }) {
   if (!bars || bars.length === 0) return null
   const maxVol = Math.max(...bars.map(b => b.volume), 1)
   const upColor = '#ef4444'
@@ -33,6 +33,42 @@ function VolumeBars({ bars, prevClose }: { bars: MinuteBar[]; prevClose: number 
             ))}
           </Bar>
         </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// ── 分时价格线 ─────────────────────────────────────────────────
+function PriceChart({ data }: { data: IntradayData | null }) {
+  if (!data || data.bars.length === 0) {
+    return (
+      <div className="h-16 bg-slate-900/50 rounded-lg flex items-center justify-center">
+        <span className="text-slate-600 text-[10px]">暂无分时数据</span>
+      </div>
+    )
+  }
+  const { bars, prevClose } = data
+  const lastPrice = bars[bars.length - 1]?.price ?? prevClose
+  const isUp = lastPrice >= prevClose
+  const strokeColor = isUp ? '#ef4444' : '#22c55e'
+  const priceData = bars.map(b => ({ time: b.time, price: b.price }))
+  const domain: [number, number] = [
+    Math.min(...priceData.map(d => d.price), prevClose) * 0.998,
+    Math.max(...priceData.map(d => d.price), prevClose) * 1.002,
+  ]
+  return (
+    <div className="h-16 bg-slate-900/50 rounded-lg px-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={priceData} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
+          <YAxis domain={domain} hide />
+          <Tooltip
+            contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 6, fontSize: 10, color: '#e2e8f0', padding: '2px 6px' }}
+            formatter={(v: number) => [v.toFixed(2), '']}
+            labelStyle={{ color: '#64748b', fontSize: 9 }}
+          />
+          <ReferenceLine y={prevClose} stroke="#475569" strokeDasharray="2 2" />
+          <Line type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+        </LineChart>
       </ResponsiveContainer>
     </div>
   )
@@ -287,7 +323,7 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
   item: MonitorItem
   quote: StockQuote | null
   analysis?: AnalysisResult
-  intraday: [string, number][] | null
+  intraday: IntradayData | null
   allQuotes: Record<string, StockQuote>
   onRemove: () => void
   onUpdate: (updates: Partial<MonitorItem>) => void
@@ -346,8 +382,8 @@ function MonitorCard({ item, quote, analysis, intraday, allQuotes, onRemove, onU
       )}
 
       {/* 分时价格线 + 成交量柱 */}
-      <PriceChart data={intraday} />
-      <VolumeBars data={intraday} />
+      <PriceChart data={intraday ?? null} />
+      <VolumeBars bars={intraday?.bars ?? null} prevClose={intraday?.prevClose ?? 0} />
 
       {/* 五档行情 */}
       {quote && (
